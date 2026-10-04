@@ -102,3 +102,25 @@ func CheckMousePositionAndGetDisplay(displays []DisplayInfo) int {
 	}
 	return -1
 }
+
+// globalMouseDisplayIndex 判断鼠标当前所在的显示器索引（-1 表示不在任何已知屏幕上）。
+// macOS：沿用既有逻辑坐标比较（NSEvent mouseLocation 为逻辑坐标），
+// 保持与改造前 window_manager.go 内联逻辑一致的行为。
+func globalMouseDisplayIndex(screens []*application.Screen) int {
+	mouseX, mouseY := GetGlobalMousePosition()
+
+	for i, screen := range screens {
+		if screen == nil {
+			continue
+		}
+		// NSEvent mouseLocation 返回的是逻辑坐标，screen.X/Y 也是逻辑坐标
+		// 直接比较逻辑坐标，不需要乘以 ScaleFactor
+		right := float64(screen.X + screen.Size.Width)
+		top := float64(screen.Y + screen.Size.Height)
+		if mouseX >= float64(screen.X) && mouseX < right &&
+			mouseY >= float64(screen.Y) && mouseY < top {
+			return i
+		}
+	}
+	return -1
+}

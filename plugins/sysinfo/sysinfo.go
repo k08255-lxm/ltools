@@ -22,83 +22,91 @@ const (
 	PluginVersion = "1.0.0"
 )
 
+// 后台采集节奏（与原实现保持一致，不降低更新频率）。
+// 以包级变量声明，测试可临时缩短周期验证生命周期（生产代码不修改）。
+var (
+	refreshInterval = 2 * time.Second // 系统信息快照刷新间隔
+	cpuSampleTick   = 2 * time.Second // CPU 采样 tick 间隔
+	cpuSampleWindow = 1 * time.Second // 单次 CPU 采样窗口
+)
+
 // SystemInfo contains system information
 type SystemInfo struct {
 	// OS Info
-	OS           string    `json:"os"`
-	Arch         string    `json:"arch"`
-	Hostname     string    `json:"hostname"`
-	Platform     string    `json:"platform"`        // e.g., "darwin", "ubuntu"
-	PlatformVer  string    `json:"platformVersion"` // OS version
-	KernelVer    string    `json:"kernelVersion"`  // Kernel version
-	KernelArch   string    `json:"kernelArch"`     // Kernel architecture
+	OS          string `json:"os"`
+	Arch        string `json:"arch"`
+	Hostname    string `json:"hostname"`
+	Platform    string `json:"platform"`        // e.g., "darwin", "ubuntu"
+	PlatformVer string `json:"platformVersion"` // OS version
+	KernelVer   string `json:"kernelVersion"`   // Kernel version
+	KernelArch  string `json:"kernelArch"`      // Kernel architecture
 
 	// CPU Info
-	CPUs         int       `json:"cpus"`
-	CPUModelName string    `json:"cpuModelName"`
-	CPUUsage     float64   `json:"cpuUsage"`      // CPU usage percentage
+	CPUs         int     `json:"cpus"`
+	CPUModelName string  `json:"cpuModelName"`
+	CPUUsage     float64 `json:"cpuUsage"` // CPU usage percentage
 
 	// Memory Info (system-wide)
-	MemoryUsed   string    `json:"memoryUsed"`
-	MemoryTotal  string    `json:"memoryTotal"`
-	MemoryFree   string    `json:"memoryFree"`
+	MemoryUsed        string  `json:"memoryUsed"`
+	MemoryTotal       string  `json:"memoryTotal"`
+	MemoryFree        string  `json:"memoryFree"`
 	MemoryUsedPercent float64 `json:"memoryUsedPercent"`
 
 	// Swap Info
-	SwapTotal    string    `json:"swapTotal"`
-	SwapUsed     string    `json:"swapUsed"`
-	SwapFree     string    `json:"swapFree"`
+	SwapTotal       string  `json:"swapTotal"`
+	SwapUsed        string  `json:"swapUsed"`
+	SwapFree        string  `json:"swapFree"`
 	SwapUsedPercent float64 `json:"swapUsedPercent"`
 
 	// Load Average
-	Load1        float64   `json:"load1"`
-	Load5        float64   `json:"load5"`
-	Load15       float64   `json:"load15"`
+	Load1  float64 `json:"load1"`
+	Load5  float64 `json:"load5"`
+	Load15 float64 `json:"load15"`
 
 	// Disk Info
-	DiskTotal    string    `json:"diskTotal"`
-	DiskUsed     string    `json:"diskUsed"`
-	DiskFree     string    `json:"diskFree"`
+	DiskTotal       string  `json:"diskTotal"`
+	DiskUsed        string  `json:"diskUsed"`
+	DiskFree        string  `json:"diskFree"`
 	DiskUsedPercent float64 `json:"diskUsedPercent"`
 
 	// Network Info
 	NetInterfaces []NetInterface `json:"netInterfaces"`
 
 	// Go Runtime Info
-	GoVersion    string    `json:"goVersion"`
-	GoMaxProcs   int       `json:"goMaxProcs"`
-	GoUptime     string    `json:"goUptime"`
+	GoVersion  string `json:"goVersion"`
+	GoMaxProcs int    `json:"goMaxProcs"`
+	GoUptime   string `json:"goUptime"`
 
 	// Host Info
-	HostUptime   string    `json:"hostUptime"`
-	BootTime     int64     `json:"bootTime"`
+	HostUptime string `json:"hostUptime"`
+	BootTime   int64  `json:"bootTime"`
 
 	// Process Info
-	ProcCount    int       `json:"procCount"`
+	ProcCount int `json:"procCount"`
 
-	Timestamp    int64     `json:"timestamp"` // Unix timestamp in milliseconds
+	Timestamp int64 `json:"timestamp"` // Unix timestamp in milliseconds
 }
 
 // NetInterface represents a network interface
 type NetInterface struct {
-	Name        string   `json:"name"`
-	HardwareAddr string  `json:"hardwareAddr"`
-	Flags       []string `json:"flags"`
-	Addrs       []string `json:"addrs"`
-	BytesSent   uint64   `json:"bytesSent"`
-	BytesRecv   uint64   `json:"bytesRecv"`
-	PacketsSent uint64   `json:"packetsSent"`
-	PacketsRecv uint64   `json:"packetsRecv"`
+	Name         string   `json:"name"`
+	HardwareAddr string   `json:"hardwareAddr"`
+	Flags        []string `json:"flags"`
+	Addrs        []string `json:"addrs"`
+	BytesSent    uint64   `json:"bytesSent"`
+	BytesRecv    uint64   `json:"bytesRecv"`
+	PacketsSent  uint64   `json:"packetsSent"`
+	PacketsRecv  uint64   `json:"packetsRecv"`
 }
 
 // ProcessInfo contains information about a process
 type ProcessInfo struct {
-	PID        int       `json:"pid"`
-	Name       string    `json:"name"`
-	CPU        float64   `json:"cpu"`
-	Memory     string    `json:"memory"`
-	Status     string    `json:"status"`
-	StartTime  time.Time `json:"startTime"`
+	PID       int       `json:"pid"`
+	Name      string    `json:"name"`
+	CPU       float64   `json:"cpu"`
+	Memory    string    `json:"memory"`
+	Status    string    `json:"status"`
+	StartTime time.Time `json:"startTime"`
 }
 
 // SysInfoPlugin provides system information functionality
@@ -108,9 +116,13 @@ type SysInfoPlugin struct {
 	startTime     time.Time
 	lastRefresh   time.Time
 	cachedInfo    *SystemInfo
-	cpuUsage      float64          // Cached CPU usage percentage
-	cpuUsageMutex sync.RWMutex     // Mutex for CPU usage
-	stopChan      chan struct{}    // Channel to stop background goroutines
+	cacheMu       sync.Mutex     // Guards cachedInfo/lastRefresh (written by concurrent snapshots)
+	cpuUsage      float64        // Cached CPU usage percentage
+	cpuUsageMutex sync.RWMutex   // Mutex for CPU usage
+	viewMutex     sync.Mutex     // Serializes view enter/leave and enable toggles
+	viewRefs      int            // Number of active consumers (sysinfo plugin page, Home dashboard card)
+	viewStop      chan struct{}  // Non-nil while background sampling loops are running
+	loopsWG       sync.WaitGroup // Tracks background sampling loop goroutines (test/shutdown observability)
 }
 
 // NewSysInfoPlugin creates a new system info plugin
@@ -134,7 +146,6 @@ func NewSysInfoPlugin() *SysInfoPlugin {
 	return &SysInfoPlugin{
 		BasePlugin: base,
 		startTime:  time.Now(),
-		stopChan:   make(chan struct{}),
 	}
 }
 
@@ -153,19 +164,17 @@ func (p *SysInfoPlugin) ServiceStartup(app *application.App) error {
 		return err
 	}
 
-	// Start background CPU sampling
-	go p.sampleCPUPeriodically()
-
-	// Start periodic info refresh
-	go p.refreshPeriodically()
-
+	// 后台 CPU 采样与周期快照不再随服务启动常驻：
+	// 改为引用计数驱动的按需采集（plugins.ViewLifecycle）——
+	// 首个可见消费者（sysinfo 插件页 / Home 仪表盘卡）OnViewEnter 时启动，
+	// 最后一个消费者 OnViewLeave 或插件停用 / 服务关闭时有界退出。
 	return nil
 }
 
 // ServiceShutdown is called when the application shuts down
 func (p *SysInfoPlugin) ServiceShutdown(app *application.App) error {
-	// Stop background goroutines
-	close(p.stopChan)
+	// Stop background sampling loops if still running (bounded exit)
+	p.pauseViewLoops()
 
 	return p.BasePlugin.ServiceShutdown(app)
 }
@@ -177,7 +186,90 @@ func (p *SysInfoPlugin) Enabled() bool {
 
 // SetEnabled enables or disables the plugin
 func (p *SysInfoPlugin) SetEnabled(enabled bool) error {
-	return p.BasePlugin.SetEnabled(enabled)
+	if err := p.BasePlugin.SetEnabled(enabled); err != nil {
+		return err
+	}
+	if !enabled {
+		// 停用插件时立即停止后台采集（保留已注册的消费者计数，
+		// 重新启用且仍有可见消费者时由 ensureViewLoops 恢复）
+		p.pauseViewLoops()
+	} else {
+		p.ensureViewLoops()
+	}
+	return nil
+}
+
+// OnViewEnter registers a visible sysinfo consumer (implements plugins.ViewLifecycle).
+// Background sampling starts when the first consumer enters (ref count 0 → 1).
+func (p *SysInfoPlugin) OnViewEnter(app *application.App) error {
+	p.viewMutex.Lock()
+	p.viewRefs++
+	p.viewMutex.Unlock()
+
+	p.ensureViewLoops()
+	return nil
+}
+
+// OnViewLeave removes a previously registered consumer (implements plugins.ViewLifecycle).
+// Background sampling stops when the last consumer leaves. Idempotent against underflow.
+func (p *SysInfoPlugin) OnViewLeave(app *application.App) error {
+	p.viewMutex.Lock()
+	if p.viewRefs > 0 {
+		p.viewRefs--
+	}
+	empty := p.viewRefs == 0
+	p.viewMutex.Unlock()
+
+	if empty {
+		p.pauseViewLoops()
+	}
+	return nil
+}
+
+// ensureViewLoops starts the background sampling loops when consumers are
+// registered and the loops are not already running. Serialized via viewMutex.
+func (p *SysInfoPlugin) ensureViewLoops() {
+	p.viewMutex.Lock()
+	needStart := p.viewRefs > 0 && p.viewStop == nil
+	var stop chan struct{}
+	if needStart {
+		stop = make(chan struct{})
+		p.viewStop = stop
+	}
+	p.viewMutex.Unlock()
+
+	if needStart {
+		// CPU 采样（含约 1 秒的初始化窗口）在后台 goroutine 中进行，
+		// 不阻塞 EnterView 的 UI 调用路径。
+		p.loopsWG.Add(2)
+		go func() {
+			defer p.loopsWG.Done()
+			p.sampleCPUPeriodically(stop)
+		}()
+		go func() {
+			defer p.loopsWG.Done()
+			p.refreshPeriodically(stop)
+		}()
+	}
+}
+
+// pauseViewLoops stops the background sampling loops if running.
+// Does not forget registered consumers (used by OnViewLeave/SetEnabled(false)/shutdown).
+func (p *SysInfoPlugin) pauseViewLoops() {
+	p.viewMutex.Lock()
+	stop := p.viewStop
+	p.viewStop = nil
+	p.viewMutex.Unlock()
+
+	if stop != nil {
+		close(stop)
+	}
+}
+
+// publishSnapshot refreshes the cached system info and notifies consumers.
+func (p *SysInfoPlugin) publishSnapshot() {
+	info := p.GetSystemInfo()
+	p.emitEvent("updated", fmt.Sprintf("%d", info.Timestamp))
 }
 
 // Helper method to emit events
@@ -187,28 +279,36 @@ func (p *SysInfoPlugin) emitEvent(eventName, data string) {
 	}
 }
 
-// sampleCPUPeriodically samples CPU usage in the background
-// This runs continuously and updates the cached CPU usage value
-func (p *SysInfoPlugin) sampleCPUPeriodically() {
-	ticker := time.NewTicker(2 * time.Second)
+// sampleCPUPeriodically samples CPU usage in the background while sysinfo
+// consumers are visible. Exits promptly (bounded) when stop is closed.
+func (p *SysInfoPlugin) sampleCPUPeriodically(stop <-chan struct{}) {
+	ticker := time.NewTicker(cpuSampleTick)
 	defer ticker.Stop()
 
-	// First call to cpu.Percent initializes the calculation
-	// We ignore the first result as it may be inaccurate
-	cpu.Percent(time.Second, false)
+	// The first cpu.Percent call both initializes the calculation and spans a
+	// real sample window, so warm the cache with its result: consumers get a
+	// real CPU value ~1s after entering instead of waiting a full tick.
+	if cpuPercent, err := cpu.Percent(cpuSampleWindow, false); err == nil && len(cpuPercent) > 0 {
+		p.cpuUsageMutex.Lock()
+		p.cpuUsage = cpuPercent[0]
+		p.cpuUsageMutex.Unlock()
+	}
+	if p.Enabled() {
+		p.publishSnapshot()
+	}
 
 	for {
 		select {
 		case <-ticker.C:
 			if p.Enabled() {
 				// Get CPU usage (this will block for ~1 second)
-				if cpuPercent, err := cpu.Percent(time.Second, false); err == nil && len(cpuPercent) > 0 {
+				if cpuPercent, err := cpu.Percent(cpuSampleWindow, false); err == nil && len(cpuPercent) > 0 {
 					p.cpuUsageMutex.Lock()
 					p.cpuUsage = cpuPercent[0]
 					p.cpuUsageMutex.Unlock()
 				}
 			}
-		case <-p.stopChan:
+		case <-stop:
 			return
 		}
 	}
@@ -221,21 +321,24 @@ func (p *SysInfoPlugin) getCachedCPUUsage() float64 {
 	return p.cpuUsage
 }
 
-// refreshPeriodically refreshes system info periodically
-func (p *SysInfoPlugin) refreshPeriodically() {
-	ticker := time.NewTicker(2 * time.Second)
+// refreshPeriodically refreshes system info periodically while sysinfo
+// consumers are visible. Exits promptly (bounded) when stop is closed.
+//
+// 每个周期只发布一个 "updated" 事件：前端唯一的刷新监听者
+// （SystemInfoWidget / Home 卡片）都在收到该事件后自行全量拉取，
+// 原先额外发布的 "cpu"/"uptime" 事件无独立消费者，只会造成重复请求。
+func (p *SysInfoPlugin) refreshPeriodically(stop <-chan struct{}) {
+	ticker := time.NewTicker(refreshInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		if p.Enabled() {
-			info := p.GetSystemInfo()
-			p.emitEvent("updated", fmt.Sprintf("%d", info.Timestamp))
-
-			// Emit individual components
-			p.emitEvent("cpu", fmt.Sprintf("%.1f", info.CPUUsage))
-			p.emitEvent("uptime", info.HostUptime)
-
-			// fmt.Printf("[SysInfo] Updated: CPU=%.1f%%, Memory=%s\n", info.CPUUsage, info.MemoryUsed)
+	for {
+		select {
+		case <-ticker.C:
+			if p.Enabled() {
+				p.publishSnapshot()
+			}
+		case <-stop:
+			return
 		}
 	}
 }
@@ -337,8 +440,10 @@ func (p *SysInfoPlugin) GetSystemInfo() *SystemInfo {
 		}
 	}
 
+	p.cacheMu.Lock()
 	p.cachedInfo = info
 	p.lastRefresh = now
+	p.cacheMu.Unlock()
 
 	return info
 }
@@ -445,8 +550,8 @@ func (p *SysInfoPlugin) GetMemoryInfo() map[string]interface{} {
 	result["goNextGC"] = m.NextGC
 	result["goLastGC"] = m.LastGC
 	result["goGCStats"] = map[string]interface{}{
-		"numGC":       m.NumGC,
-		"numForcedGC": m.NumForcedGC,
+		"numGC":        m.NumGC,
+		"numForcedGC":  m.NumForcedGC,
 		"pauseTotalNs": m.PauseTotalNs,
 	}
 
@@ -466,15 +571,15 @@ func (p *SysInfoPlugin) GetDiskInfo() []map[string]interface{} {
 	for _, path := range paths {
 		if diskInfo, err := disk.Usage(path); err == nil {
 			result = append(result, map[string]interface{}{
-				"path":         diskInfo.Path,
-				"fstype":       diskInfo.Fstype,
-				"total":        formatBytes(diskInfo.Total),
-				"free":         formatBytes(diskInfo.Free),
-				"used":         formatBytes(diskInfo.Used),
-				"usedPercent":  diskInfo.UsedPercent,
-				"inodesTotal":  diskInfo.InodesTotal,
-				"inodesUsed":   diskInfo.InodesUsed,
-				"inodesFree":   diskInfo.InodesFree,
+				"path":              diskInfo.Path,
+				"fstype":            diskInfo.Fstype,
+				"total":             formatBytes(diskInfo.Total),
+				"free":              formatBytes(diskInfo.Free),
+				"used":              formatBytes(diskInfo.Used),
+				"usedPercent":       diskInfo.UsedPercent,
+				"inodesTotal":       diskInfo.InodesTotal,
+				"inodesUsed":        diskInfo.InodesUsed,
+				"inodesFree":        diskInfo.InodesFree,
 				"inodesUsedPercent": diskInfo.InodesUsedPercent,
 			})
 		}
@@ -494,15 +599,15 @@ func (p *SysInfoPlugin) GetDiskInfo() []map[string]interface{} {
 			if !found {
 				if diskInfo, err := disk.Usage(p.Mountpoint); err == nil {
 					result = append(result, map[string]interface{}{
-						"path":              diskInfo.Path,
-						"fstype":            diskInfo.Fstype,
-						"total":             formatBytes(diskInfo.Total),
-						"free":              formatBytes(diskInfo.Free),
-						"used":              formatBytes(diskInfo.Used),
-						"usedPercent":       diskInfo.UsedPercent,
-						"device":            p.Device,
-						"mountpoint":        p.Mountpoint,
-						"opts":              p.Opts,
+						"path":        diskInfo.Path,
+						"fstype":      diskInfo.Fstype,
+						"total":       formatBytes(diskInfo.Total),
+						"free":        formatBytes(diskInfo.Free),
+						"used":        formatBytes(diskInfo.Used),
+						"usedPercent": diskInfo.UsedPercent,
+						"device":      p.Device,
+						"mountpoint":  p.Mountpoint,
+						"opts":        p.Opts,
 					})
 				}
 			}
@@ -557,15 +662,15 @@ func (p *SysInfoPlugin) GetNetworkInfo() []map[string]interface{} {
 	// Get total network statistics
 	if totalStats, err := net.IOCounters(false); err == nil && len(totalStats) > 0 {
 		totalMap := map[string]interface{}{
-			"name":         "total",
-			"bytesSent":    totalStats[0].BytesSent,
-			"bytesRecv":    totalStats[0].BytesRecv,
-			"packetsSent":  totalStats[0].PacketsSent,
-			"packetsRecv":  totalStats[0].PacketsRecv,
-			"errin":        totalStats[0].Errin,
-			"errout":       totalStats[0].Errout,
-			"dropin":       totalStats[0].Dropin,
-			"dropout":      totalStats[0].Dropout,
+			"name":        "total",
+			"bytesSent":   totalStats[0].BytesSent,
+			"bytesRecv":   totalStats[0].BytesRecv,
+			"packetsSent": totalStats[0].PacketsSent,
+			"packetsRecv": totalStats[0].PacketsRecv,
+			"errin":       totalStats[0].Errin,
+			"errout":      totalStats[0].Errout,
+			"dropin":      totalStats[0].Dropin,
+			"dropout":     totalStats[0].Dropout,
 		}
 		result = append([]map[string]interface{}{totalMap}, result...)
 	}
@@ -619,7 +724,7 @@ func (p *SysInfoPlugin) GetTemperatureInfo() []map[string]interface{} {
 	// Temperature sensors are platform-specific and may not be available
 	// This is a placeholder for future implementation
 	result = append(result, map[string]interface{}{
-		"message": "Temperature sensor support varies by platform",
+		"message":  "Temperature sensor support varies by platform",
 		"platform": runtime.GOOS,
 	})
 

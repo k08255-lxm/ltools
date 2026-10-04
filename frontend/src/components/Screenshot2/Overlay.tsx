@@ -100,8 +100,17 @@ const Screenshot2Overlay: React.FC = () => {
     return parseFloat(params.get('scale') || '1.0');
   };
 
+  // 会话 ID：由后端在创建窗口时写入 URL，用于
+  // 1) FrontendReady 的会话隔离（过期窗口的 ready 不被计入当前会话）
+  // 2) 定向图像投递的接收校验（过期图像不显示）
+  const getSessionId = (): string => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('session') || '';
+  };
+
   const currentDisplayIndex = getDisplayIndex();
   const scaleFactor = getScaleFactor();
+  const currentSessionId = getSessionId();
 
   // 显示 Toast
   const showToast = useCallback((message: string) => {
@@ -131,18 +140,7 @@ const Screenshot2Overlay: React.FC = () => {
       }
     });
 
-    const unsubscribeImageData = Events.On('screenshot2:image-data', (ev: any) => {
-      try {
-        const data = JSON.parse(ev.data);
-        if (data.displayIndex === currentDisplayIndex) {
-          setImageData(data.imageData);
-          setSessionId(data.sessionId);
-        }
-      } catch (e) {
-        console.error('[Screenshot2Overlay] Failed to parse image data:', e);
-      }
-    });
-
+    // 会话结束：清理状态（图像由后端经 ExecJS 定向投递，不再监听全局 image-data）
     const unsubscribeSessionEnd = Events.On('screenshot2:session-end', () => {
       setSessionId('');
       setImageData('');
@@ -161,9 +159,22 @@ const Screenshot2Overlay: React.FC = () => {
       }
     });
 
-    // 所有事件监听器已注册，现在通知后端前端已就绪
+    // 窗口定向图像接收函数：后端通过 WebviewWindow.ExecJS 调用。
+    // 只有当前 URL 会话的图像才会显示，过期会话的投递被丢弃，
+    // 因此旧覆盖层窗口不会短暂显示新会话的画面。
+    (window as any).__screenshot2SetImage = (dataSessionId: string, dataUrl: string) => {
+      if (dataSessionId !== currentSessionId) {
+        console.warn('[Screenshot2Overlay] Ignoring image from stale session:', dataSessionId);
+        return;
+      }
+      setImageData(dataUrl);
+      setSessionId(dataSessionId);
+    };
+
+    // 所有事件监听器与图像接收函数已就位，现在通知后端前端已就绪
+    // （携带会话 ID，后端按会话+显示器去重）
     console.log('[Screenshot2Overlay] All event listeners registered, calling FrontendReady for display', currentDisplayIndex);
-    Screenshot2Service.FrontendReady(currentDisplayIndex).then(() => {
+    Screenshot2Service.FrontendReady(currentSessionId, currentDisplayIndex).then(() => {
       console.log('[Screenshot2Overlay] FrontendReady called successfully for display', currentDisplayIndex);
     }).catch((err) => {
       console.error('[Screenshot2Overlay] Failed to notify frontend ready:', err);
@@ -172,11 +183,11 @@ const Screenshot2Overlay: React.FC = () => {
     return () => {
       unsubscribeSessionStart();
       unsubscribeDisplaysInfo();
-      unsubscribeImageData();
       unsubscribeSessionEnd();
       unsubscribeSelectionStarted();
+      delete (window as any).__screenshot2SetImage;
     };
-  }, [currentDisplayIndex]);
+  }, [currentDisplayIndex, currentSessionId]);
 
   // 加载图片
   useEffect(() => {

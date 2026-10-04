@@ -655,6 +655,11 @@ func main() {
 		MinWidth:  1400,
 		MinHeight: 900,
 		//DisableResize:       true,                      // 禁用调整大小
+		// Windows: 去除系统标题栏，窗口控制（最小化/最大化/关闭）由前端
+		// MainLayout 右上角的自绘控件接管（frontend/src/components/window/WindowControls.tsx）。
+		// Frameless 下保留 WS_THICKFRAME 与前端 resize 手柄，边缘拖拽调整大小不受影响；
+		// macOS: 保持原生交通灯标题栏，不启用 Frameless。
+		Frameless:           runtime.GOOS == "windows",
 		MinimiseButtonState: application.ButtonEnabled, // 开启最小化按钮
 		MaximiseButtonState: application.ButtonEnabled, // 开启最大化按钮
 		UseApplicationMenu:  true,                      // 使用应用程序菜单（对 macOS 无影响）
@@ -683,6 +688,28 @@ func main() {
 	mainWindow.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		mainWindow.Hide()
 		e.Cancel() // 阻止窗口真正关闭
+	})
+
+	// 主窗口可见性转发（供前端区分"页面挂载"与"窗口可见"）：
+	// Close 到托盘 / 截图会话隐藏主窗口后，前端 React 树仍挂载，
+	// sysinfo 等页面消费者需要据此暂停后台采集，重显时恢复。
+	// 使用 per-window 钩子只捕获主窗口自身的 Show/Hide（全局窗口事件
+	// 不携带窗口名，搜索窗口/覆盖层等窗口的显隐会误触发前端订阅）。
+	notifyMainWindowVisibility := func(visible bool) {
+		app.Event.Emit("main-window:visibility", visible)
+	}
+	mainWindow.OnWindowEvent(events.Windows.WindowShow, func(_ *application.WindowEvent) {
+		notifyMainWindowVisibility(true)
+	})
+	mainWindow.OnWindowEvent(events.Windows.WindowHide, func(_ *application.WindowEvent) {
+		notifyMainWindowVisibility(false)
+	})
+	// macOS：同理（Linux 无对应窗口显隐事件，前端保持初始值，行为与旧版一致）
+	mainWindow.OnWindowEvent(events.Mac.WindowShow, func(_ *application.WindowEvent) {
+		notifyMainWindowVisibility(true)
+	})
+	mainWindow.OnWindowEvent(events.Mac.WindowHide, func(_ *application.WindowEvent) {
+		notifyMainWindowVisibility(false)
 	})
 
 	// 监听文件拖放事件
@@ -770,6 +797,14 @@ func main() {
 
 	// Set the main window reference in Screenshot2WindowManager
 	screenshot2WindowManager.SetMainWindow(mainWindow)
+
+	// 截图会话隐藏/恢复搜索窗口时，同步 SearchWindowService 自持的 isVisible 状态：
+	// 截图服务经通用窗口遍历隐藏辅助窗口，若不同步，会话期间搜索热键 Toggle
+	// 的判定与真实可见性脱节（隐藏后按热键会先走一次多余的 Hide，再按才 Show）
+	screenshot2WindowManager.SetAuxWindowHooks(
+		searchWindowService.HideForCapture,
+		searchWindowService.RestoreAfterCapture,
+	)
 
 	// Start the screenshot2 window manager
 	if err := screenshot2WindowManager.ServiceStartup(app); err != nil {

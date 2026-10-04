@@ -33,10 +33,10 @@ type DisplayInfo struct {
 
 // CaptureResult 单个显示器的截图结果
 type CaptureResult struct {
-	DisplayIndex int    `json:"displayIndex"`
-	Base64Data   string `json:"base64Data"`
-	Width        int    `json:"width"`
-	Height       int    `json:"height"`
+	DisplayIndex int         `json:"displayIndex"`
+	Base64Data   string      `json:"base64Data"`
+	Width        int         `json:"width"`
+	Height       int         `json:"height"`
 	Image        *image.RGBA `json:"-"` // 内部使用，不序列化
 }
 
@@ -89,7 +89,9 @@ func (p *Screenshot2Plugin) CaptureAllDisplaysSeparately() (map[int]*CaptureResu
 			// 线程安全地存储结果
 			resultsMu.Lock()
 			results[displayIndex] = result
+			p.displayImagesMu.Lock()
 			p.displayImages[displayIndex] = pngData
+			p.displayImagesMu.Unlock()
 			resultsMu.Unlock()
 
 			log.Printf("[Screenshot2] 显示器 %d 捕获成功: %dx%d", displayIndex, img.Bounds().Dx(), img.Bounds().Dy())
@@ -241,11 +243,15 @@ func (p *Screenshot2Plugin) GetVirtualDesktopBounds() (x, y, width, height int) 
 
 // GetDisplayImage 获取指定显示器的截图数据
 func (p *Screenshot2Plugin) GetDisplayImage(displayIndex int) []byte {
+	p.displayImagesMu.RLock()
+	defer p.displayImagesMu.RUnlock()
 	return p.displayImages[displayIndex]
 }
 
 // ClearDisplayImages 清除所有显示器截图数据
 func (p *Screenshot2Plugin) ClearDisplayImages() {
+	p.displayImagesMu.Lock()
+	defer p.displayImagesMu.Unlock()
 	p.displayImages = make(map[int][]byte)
 }
 

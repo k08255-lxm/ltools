@@ -11,10 +11,10 @@ import (
 
 // PinWindowManager 管理所有贴图窗口
 type PinWindowManager struct {
-	windows    map[int]*application.WebviewWindow
-	imageData  map[int]string // 存储 base64 图片数据
-	mu         sync.RWMutex
-	nextID     int
+	windows   map[int]*application.WebviewWindow
+	imageData map[int]string // 存储 base64 图片数据
+	mu        sync.RWMutex
+	nextID    int
 }
 
 // Global pin window manager

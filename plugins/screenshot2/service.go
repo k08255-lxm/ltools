@@ -170,18 +170,23 @@ func (s *Screenshot2Service) SaveImageWithDialog(imgData string) (string, error)
 // CancelCapture 取消截图
 func (s *Screenshot2Service) CancelCapture() {
 	if s.windowManager != nil {
-		s.windowManager.CloseAllWindows()
+		// CancelSession 区分"启动中"与"已启动"两种时序：
+		// 启动中仅发取消信号由启动方收尾（避免与 StartCapture 互相阻塞），
+		// 已启动则直接收尾。收尾会恢复主窗口与被隐藏的辅助窗口。
+		s.windowManager.CancelSession()
 	}
 	s.plugin.ClearDisplayImages()
 	s.emitEvent("cancelled", "capture cancelled")
 	log.Printf("[Screenshot2Service] Capture cancelled")
 }
 
-// FrontendReady 前端调用此方法通知已加载完成
-func (s *Screenshot2Service) FrontendReady(displayIndex int) {
-	log.Printf("[Screenshot2Service] FrontendReady called for display %d", displayIndex)
+// FrontendReady 前端调用此方法通知已加载完成。
+// sessionId 用于会话隔离：迟到/过期会话的 ready 会被丢弃，
+// 同一显示器的重复 ready 只计一次。
+func (s *Screenshot2Service) FrontendReady(sessionId string, displayIndex int) {
+	log.Printf("[Screenshot2Service] FrontendReady called for display %d (session %q)", displayIndex, sessionId)
 	if s.windowManager != nil {
-		s.windowManager.OnFrontendReady(displayIndex)
+		s.windowManager.OnFrontendReady(sessionId, displayIndex)
 	} else {
 		log.Printf("[Screenshot2Service] WARNING: windowManager is nil!")
 	}

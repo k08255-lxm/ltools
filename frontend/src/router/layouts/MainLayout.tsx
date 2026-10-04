@@ -5,6 +5,7 @@ import { ToastProvider } from '../../contexts/ToastContext'
 import { Sidebar } from '../../components/navigation/Sidebar'
 import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts'
 import { UpdateNotification } from '../../widgets/UpdateNotificationWidget'
+import { shouldShowWindowControls, WindowControls } from '../../components/window/WindowControls'
 import * as SearchWindowService from '../../../bindings/ltools/internal/plugins/searchwindowservice'
 
 // Re-export IconName for use in other files
@@ -104,16 +105,31 @@ export function MainLayout() {
     }
   }, [navigate])
 
+  // Windows Frameless 窗口:自绘控件悬浮于主内容框右上角(不占独立标题行,
+  // 不下推内容),容器标记 has-window-controls 供 CSS 局部预留右侧空间
+  const showWindowControls = shouldShowWindowControls()
+
   return (
     <ToastProvider>
-      <div className="flex h-screen bg-surface-0 text-text-1">
+      <div
+        className={`flex h-screen bg-surface-0 text-text-1 ${showWindowControls ? 'has-window-controls' : ''}`}
+      >
         {/* 侧边栏 */}
         <Sidebar />
 
-        {/* 主内容区 - 由子路由填充 */}
-        <main className="relative flex-1 overflow-auto">
-          <Outlet />
-        </main>
+        {/* 主内容列:右上角紧凑窗口控制区 + 由子路由填充的内容区 */}
+        <div className="relative flex min-w-0 flex-1 flex-col">
+          {showWindowControls && (
+            <div className="window-controls-float bg-surface-0">
+              <WindowControls />
+            </div>
+          )}
+
+          {/* 主内容区 - 由子路由填充 */}
+          <main className="relative flex-1 overflow-auto">
+            <Outlet />
+          </main>
+        </div>
       </div>
 
       {/* 更新通知组件（全局） */}

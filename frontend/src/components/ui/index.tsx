@@ -131,12 +131,24 @@ export function PageHeader({
   className?: string
 }) {
   return (
-    <div className={`page-header ${className}`}>
-      <div>
+    // 页头非交互空白(标题区与 actions 之外的空隙)可拖动窗口;
+    // actions 区域 no-drag,按钮/链接保持可点击。
+    <div
+      className={`page-header ${className}`}
+      style={{ '--wails-draggable': 'drag' } as React.CSSProperties}
+    >
+      <div className="min-w-0">
         <h1 className="page-title">{title}</h1>
         {description && <p className="page-subtitle">{description}</p>}
       </div>
-      {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
+      {actions && (
+        <div
+          className="flex items-center gap-2 shrink-0"
+          style={{ '--wails-draggable': 'no-drag' } as React.CSSProperties}
+        >
+          {actions}
+        </div>
+      )}
     </div>
   )
 }

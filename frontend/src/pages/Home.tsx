@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Icon, type IconName } from '../components/Icon'
 import { usePlugins } from '../plugins/usePlugins'
 import { getPluginIconName } from '../utils/pluginHelpers'
+import { useMainWindowVisible } from '../hooks/useMainWindowVisible'
 import { PluginMetadata, PluginState } from '../../bindings/ltools/internal/plugins'
 import { SysInfoService } from '../../bindings/ltools/plugins/sysinfo'
 import { Events } from '@wailsio/runtime'
@@ -352,6 +353,39 @@ function Home() {
       unsub?.()
     }
   }, [loadSystemStatus])
+
+  // 注册 sysinfo 可见消费者：首页系统状态卡可见期间保持后台采集并推送更新，
+  // 离开首页即释放（后端按引用计数，与 sysinfo 插件页并存时叠加）。
+  // 页面挂载 ≠ 窗口可见：主窗口 Close 到托盘后本组件仍挂载，
+  // 因此订阅同时由主窗口可见性驱动 —— 窗口隐藏即释放（暂停后台采集），
+  // 重显即恢复，避免对不可见窗口的空转采集。
+  // disposed/entered 串接：处理 EnterView 尚未完成即卸载、Enter 失败、
+  // StrictMode mount-cleanup-mount、快速导航与隐藏/重显切换——cleanup 只
+  // 释放本 effect 成功取得的一次订阅，不漏释放也不重复减计数。
+  const mainVisible = useMainWindowVisible()
+
+  useEffect(() => {
+    if (!mainVisible) return
+    let disposed = false
+    let entered = false
+    SysInfoService.EnterView()
+      .then(() => {
+        if (disposed) {
+          // 卸载先于订阅完成：立即释放，避免引用计数泄漏
+          SysInfoService.LeaveView().catch(() => {})
+        } else {
+          entered = true
+        }
+      })
+      .catch(() => {})
+    return () => {
+      disposed = true
+      if (entered) {
+        entered = false
+        SysInfoService.LeaveView().catch(() => {})
+      }
+    }
+  }, [mainVisible])
 
   // 点击插件卡片 - 导航到插件页面
   const handlePluginClick = (pluginId: string) => {

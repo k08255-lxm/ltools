@@ -6,6 +6,7 @@ import { PluginState } from '../../../bindings/ltools/internal/plugins'
 import * as PluginService from '../../../bindings/ltools/internal/plugins/pluginservice'
 import type { NavItem } from '../../router/types'
 import { getPluginIconName } from '../../utils/pluginHelpers'
+import { Window } from '@wailsio/runtime'
 
 /**
  * 基础导航项配置
@@ -145,8 +146,16 @@ export function Sidebar() {
 
   return (
     <aside className="flex w-[212px] shrink-0 flex-col border-r border-hairline bg-surface-1">
-      {/* Logo 区域 */}
-      <div className="flex items-center gap-2.5 px-4 pb-3 pt-4">
+      {/* Logo 区域（非交互空白，可拖动窗口；双击最大化/还原） */}
+      <div
+        className="flex items-center gap-2.5 px-4 pb-3 pt-4"
+        style={{ '--wails-draggable': 'drag' } as React.CSSProperties}
+        onDoubleClick={() => {
+          Window.ToggleMaximise().catch((err) =>
+            console.error('[Sidebar] ToggleMaximise failed:', err),
+          )
+        }}
+      >
         <div className="flex h-[30px] w-[30px] items-center justify-center rounded-[8px] border border-hairline-strong bg-surface-3">
           <Icon name="cube" size={16} color="var(--color-accent-text)" />
         </div>

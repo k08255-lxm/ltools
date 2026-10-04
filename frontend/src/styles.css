@@ -244,6 +244,77 @@ a:hover {
     padding: 24px 28px 40px;
   }
 
+  /* ---------- 窗口控制区(Windows Frameless 主窗口) ----------
+     悬浮于主内容框右上角的紧凑控制区(绝对定位,不占独立标题行,
+     不把内容整体下推)。不透明背景避免滚动内容透出;
+     --wails-draggable: no-drag 保证按钮可点击。 */
+  .window-controls-float {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 50;
+    display: flex;
+    align-items: stretch;
+    height: 36px;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* 控制区悬浮时,主内容列根元素带 .has-window-controls:
+     各页面容器在右侧局部预留控制区宽度,首行工具栏与滚动内容
+     均不会进入右上角被遮挡。非 Windows(原生标题栏)不生效。 */
+  .has-window-controls {
+    --window-controls-width: 132px; /* 3 × 44px 控制按钮 */
+  }
+
+  .has-window-controls .page,
+  .has-window-controls .page-wide {
+    padding-right: calc(28px + var(--window-controls-width));
+  }
+
+  .has-window-controls .settings-page {
+    padding-right: calc(24px + var(--window-controls-width));
+  }
+
+  .win-controls {
+    display: flex;
+    align-items: stretch;
+  }
+
+  .win-control-btn {
+    display: inline-flex;
+    width: 44px;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--color-text-2);
+    cursor: default;
+    transition:
+      background-color var(--dur-1) var(--ease-out),
+      color var(--dur-1) var(--ease-out);
+  }
+
+  .win-control-btn:hover {
+    background: var(--color-surface-3);
+    color: var(--color-text-1);
+  }
+
+  .win-control-btn:active {
+    background: var(--color-surface-4);
+  }
+
+  /* 关闭按钮悬停:Windows 惯例的红色 */
+  .win-control-close:hover {
+    background: var(--color-error);
+    color: #ffffff;
+  }
+
+  .win-control-close:active {
+    background: #d63b31;
+    color: #ffffff;
+  }
+
   .page-header {
     display: flex;
     align-items: flex-start;

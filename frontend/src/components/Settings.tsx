@@ -57,7 +57,7 @@ export function Settings({ shortcuts, onSetShortcut, onRemoveShortcut }: Setting
   };
 
   return (
-    <div className="min-h-full flex gap-6 p-6">
+    <div className="settings-page min-h-full flex gap-6 p-6">
       {/* 左侧分类导航 */}
       <SettingsNav
         activeCategory={activeCategory}

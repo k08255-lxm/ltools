@@ -3,6 +3,7 @@ package screenshot2
 import (
 	"log"
 	"path/filepath"
+	"sync"
 
 	"ltools/internal/plugins"
 
@@ -31,7 +32,8 @@ type Screenshot2Plugin struct {
 	tempDir   string
 
 	// 多显示器截图数据（每个显示器单独存储）
-	displayImages map[int][]byte // displayIndex -> PNG data
+	displayImagesMu sync.RWMutex
+	displayImages   map[int][]byte // displayIndex -> PNG data
 }
 
 // NewScreenshot2Plugin creates a new screenshot2 plugin instance

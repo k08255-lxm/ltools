@@ -209,6 +209,52 @@ func (s *SearchWindowService) Toggle() error {
 	return s.Show()
 }
 
+// HideForCapture 如果给定窗口是搜索窗口，则隐藏它并同步内部可见状态。
+// 供截图服务（plugins/screenshot2）在截图会话开始时经 SetAuxWindowHooks
+// 回调调用：截图服务经通用窗口遍历隐藏辅助窗口，若不同步本服务的
+// isVisible，会话期间搜索热键 Toggle 的判定会与真实可见性脱节。
+// 返回 true 表示该窗口由本服务处理（已隐藏、位置已保存、状态已同步）；
+// 返回 false 表示窗口不是搜索窗口、不存在或本就不可见（未产生任何动作）。
+func (s *SearchWindowService) HideForCapture(w *application.WebviewWindow) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if w == nil || s.searchWindow == nil || w != s.searchWindow {
+		return false
+	}
+	if !s.searchWindow.IsVisible() {
+		return false
+	}
+
+	x, y := s.searchWindow.Position()
+	s.lastPosition = &windowPosition{X: x, Y: y}
+	s.searchWindow.Hide()
+	s.isVisible = false
+	s.app.Logger.Info("[SearchWindowService] Hidden for screenshot capture (state synced)")
+	return true
+}
+
+// RestoreAfterCapture 如果给定窗口是搜索窗口，则恢复显示并同步内部可见状态。
+// 供截图服务在会话结束时经 SetAuxWindowHooks 回调调用，与 HideForCapture 配对。
+// 返回 true 表示该窗口由本服务处理（已恢复、状态已同步）；
+// 返回 false 表示窗口不是搜索窗口、不存在或本就可见（未产生任何动作）。
+func (s *SearchWindowService) RestoreAfterCapture(w *application.WebviewWindow) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if w == nil || s.searchWindow == nil || w != s.searchWindow {
+		return false
+	}
+	if s.searchWindow.IsVisible() {
+		return false
+	}
+
+	s.searchWindow.Show()
+	s.isVisible = true
+	s.app.Logger.Info("[SearchWindowService] Restored after screenshot capture (state synced)")
+	return true
+}
+
 // IsVisible returns whether the search window is currently visible
 func (s *SearchWindowService) IsVisible() bool {
 	s.mu.RLock()
@@ -401,6 +447,7 @@ func (s *SearchWindowService) createWindow() error {
 	s.app.Logger.Info("[SearchWindowService] Creating search window...")
 
 	s.searchWindow = s.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:            "search",
 		Title:           "LTools Search",
 		Width:           760,
 		Height:          460,

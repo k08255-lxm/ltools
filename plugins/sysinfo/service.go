@@ -97,3 +97,16 @@ func (s *SysInfoService) SetMaxProcs(n int) {
 func (s *SysInfoService) GetMaxProcs() int {
 	return s.plugin.GetMaxProcs()
 }
+
+// EnterView notifies the plugin that a sysinfo consumer (plugin page or Home
+// dashboard card) became visible. Background sampling starts with the first
+// consumer and is reference counted across concurrent consumers/windows.
+func (s *SysInfoService) EnterView() error {
+	return s.plugin.OnViewEnter(s.app)
+}
+
+// LeaveView notifies the plugin that a sysinfo consumer is no longer visible.
+// Background sampling stops when the last consumer leaves.
+func (s *SysInfoService) LeaveView() error {
+	return s.plugin.OnViewLeave(s.app)
+}
